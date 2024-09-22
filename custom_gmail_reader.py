@@ -178,5 +178,5 @@ class CustomGmailReader(BaseReader, BaseModel):
 
 
 if __name__ == "__main__":
-    reader = CustomGmailReader(query="from:me after:2023-01-01")
+    reader = CustomGmailReader(query="from:me after:2024-08-01")
     print(reader.load_data())

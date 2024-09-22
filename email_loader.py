@@ -31,7 +31,7 @@ def fetch_emails():
     print("Creating email loader...")
     loader = CustomGmailReader(
         query=f"after:{formatted_date}",
-        max_results=100,
+        max_results=500,
         results_per_page=50,
         service=None
     )

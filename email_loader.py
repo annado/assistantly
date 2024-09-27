@@ -16,11 +16,12 @@ from custom_gmail_reader import CustomGmailReader
 PERSIST_DIR = "./storage"
 
 def load_emails_from_storage():
-    if os.path.exists(PERSIST_DIR):
+    try:
         storage_context = StorageContext.from_defaults(persist_dir=PERSIST_DIR)
         index = load_index_from_storage(storage_context)
         return index
-    return None
+    except:
+        return None
 
 def fetch_emails():
     current_date = datetime.now()

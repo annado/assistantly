@@ -1,12 +1,14 @@
+import json
 from dotenv import load_dotenv
 import chainlit as cl
 from langsmith import traceable
 
-import chat
+import chatbot
 from email_loader import load_emails
 
 # Load environment variables
 load_dotenv()
+
 
 @cl.set_starters
 async def set_starters():
@@ -24,20 +26,28 @@ async def set_starters():
             ),
     ]
 
+
 @cl.on_chat_start
 def start_chat():
-    documents = load_emails("Most recent emails from school")
-    chat.chat_start(documents)
+    # documents = load_emails("Most recent emails from school")
+    # chat.chat_start(documents)
+    chatbot.start_chat([])
 
-@cl.on_message
+
 @traceable
+@cl.on_message
 async def on_message(message: cl.Message):
-    message_history = chat.append_message_to_history(message)
-    response_message = await chat.start_response()
+    message_history = chatbot.append_user_message_to_history(message)
 
-    await chat.stream_response(message, message_history, response_message)
-    await chat.record_ai_response(cl, message_history, response_message)
-    await response_message.update()
+    response_message = await chatbot.generate_response(message_history)
+
+    while await chatbot.check_if_function_call(response_message):
+        response_message = await chatbot.handle_function_call(message_history, response_message)
+
+    if response_message:
+        await chatbot.append_ai_message_to_history(message_history, response_message)
+
+    chatbot.update_message_history(message_history)
 
 if __name__ == "__main__":
     cl.main()

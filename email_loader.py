@@ -1,19 +1,24 @@
 from datetime import datetime, timedelta
-import os
 
-from llama_index.core import VectorStoreIndex
-from llama_index.core.query_engine import RetrieverQueryEngine
-from llama_index.core.retrievers import VectorIndexRetriever
 from llama_index.core import (
     load_index_from_storage,
-    load_indices_from_storage,
-    load_graph_from_storage,
     StorageContext,
+    VectorStoreIndex,
+    QueryBundle
 )
-
+from llama_index.core.postprocessor import (
+    FixedRecencyPostprocessor
+)
 from custom_gmail_reader import CustomGmailReader
 
 PERSIST_DIR = "./storage"
+
+def print_date_from_now(days_ago):
+    current_date = datetime.now()
+    one_week_ago = current_date - timedelta(days=days_ago)
+    formatted_date = one_week_ago.strftime("%Y-%m-%d")
+    return formatted_date
+
 
 def load_emails_from_storage():
     try:
@@ -24,9 +29,7 @@ def load_emails_from_storage():
         return None
 
 def fetch_emails():
-    current_date = datetime.now()
-    one_week_ago = current_date - timedelta(days=4)
-    formatted_date = one_week_ago.strftime("%Y-%m-%d")
+    formatted_date = print_date_from_now(7)
 
     # Instantiate the CustomGmailReader
     print("Creating email loader...")
@@ -49,20 +52,42 @@ def fetch_and_create_index():
     index.storage_context.persist(persist_dir=PERSIST_DIR)
     return index
 
-def load_emails(query):
+def get_email_retriever(force_refetch=False, top_k=30):
     index = load_emails_from_storage()
-    if not index:
-        print("No index found, fetching emails...")
+    if not index or force_refetch:
+        print("Refetching emails...")
         index = fetch_and_create_index()
 
     # Create a retriever to fetch relevant documents
-    retriever = index.as_retriever(retrieval_mode='similarity', k=30, similarity_top_k=30)
+    retriever = index.as_retriever(retrieval_mode='similarity', 
+        k=top_k,
+        similarity_top_k=top_k
+    )
+    return retriever
+
+def load_emails(query):
+    print(f"Query: {query}")
+    retriever = get_email_retriever()
 
     # Check for freshness
-    latest_docs = retriever.retrieve("Do I have recent emails from within the last 24 hours?")
-    if (len(latest_docs) == 0):
-        print("No recent emails, refetching...")
-        index = fetch_and_create_index()
+    # formatted_date = print_date_from_now(1)
+    # recency_query = f"Fetch me an email from {formatted_date}"
+    # node_postprocessor = FixedRecencyPostprocessor(
+    #     date_key="date",
+    #     window=timedelta(days=1),
+    # )
+    # print(f"Recency Query: {recency_query}")
+    # docs = retriever.retrieve(recency_query)
+    # query_bundle = QueryBundle(
+    #     query_str=recency_query
+    # )
+    # filtered_docs = node_postprocessor.postprocess_nodes(docs, query_bundle=query_bundle)
+    # print(f"Number of latest documents: {len(filtered_docs)}")
+    # if (len(filtered_docs) == 0):
+    #     print("No recent emails, refetching...")
+    #     index = fetch_and_create_index()
+    # else:
+    #     print(f"Found recent emails, using cached index. {filtered_docs[0].node.metadata}")
 
     # Retrieve relevant documents
     relevant_docs = retriever.retrieve(query)
@@ -72,14 +97,22 @@ def load_emails(query):
 
     ret = []
     for i, doc in enumerate(relevant_docs):
-        print(f"Document {i+1}:")
         # print(f"Text sample: {doc.node.get_content()[:200]}...")  # Print first 200 characters
-        print(f"Metadata: {doc.node.metadata}")
+        print(f"Document {i+1}: {doc.node.metadata['date']}")
+        print(f"Subject: {doc.node.metadata['subject']}")
         print(f"Score: {doc.score}")
-        print("\n" + "="*50 + "\n")
+        print("="*50)
         ret.append({
             "metadata": doc.node.metadata,
             "content": doc.node.get_content()
         })
 
     return ret
+
+def get_emails_by_school(school_name):
+    emails = load_emails(f"Most recent emails from {school_name}")
+    return emails
+
+def get_recent_order_emails():
+    emails = load_emails("Most recent emails about recent purchases")
+    return emails

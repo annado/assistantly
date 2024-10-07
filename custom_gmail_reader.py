@@ -6,7 +6,10 @@ Modifications made to create a cleaner document, and add metadata for filtering 
 
 import base64
 import email
+from email import message_from_bytes
+from email.utils import parseaddr
 from typing import Any, List, Optional
+from markdownify import markdownify as md
 
 from llama_index.core.readers.base import BaseReader
 from llama_index.core.schema import Document
@@ -84,8 +87,8 @@ class CustomGmailReader(BaseReader, BaseModel):
 
         return creds
 
-    def search_messages(self):
-        query = self.query
+    def search_messages(self, query=None):
+        query = query or self.query
 
         max_results = self.max_results
         if self.results_per_page:
@@ -142,7 +145,8 @@ class CustomGmailReader(BaseReader, BaseModel):
         headers = {header['name'].lower(): header['value'] for header in message_data['payload']['headers']}
 
         body = self.extract_message_body(message_data)
-
+        # body2 = self.parse_multipart_email(message_data)
+        # print(f"message_data: {body2}")
         return {
             "id": message_data["id"],
             "threadId": message_data["threadId"],
@@ -155,25 +159,65 @@ class CustomGmailReader(BaseReader, BaseModel):
             "date": headers.get('date', ""),
         }
 
+    def parse_multipart_email(self, raw_message):
+        email_message = message_from_bytes(raw_message)
+        
+        html_content = ""
+        plain_content = ""
+
+        if email_message.is_multipart():
+            for part in email_message.walk():
+                content_type = part.get_content_type()
+                if content_type == 'text/plain':
+                    plain_content = part.get_payload(decode=True).decode()
+                elif content_type == 'text/html':
+                    html_content = part.get_payload(decode=True).decode()
+        else:
+            content_type = email_message.get_content_type()
+            if content_type == 'text/plain':
+                plain_content = email_message.get_payload(decode=True).decode()
+            elif content_type == 'text/html':
+                html_content = email_message.get_payload(decode=True).decode()
+
+        # Prefer plain text, fall back to HTML converted to plain text
+        body = plain_content or md(html_content)
+
+        return body.strip()
+
     def extract_message_body(self, message_data):
+        message_body = ''
+
         def get_text(payload):
             if 'body' in payload:
                 data = payload['body'].get('data')
                 if data:
-                    return base64.urlsafe_b64decode(data).decode('utf-8', errors='replace')
+                    decoded_data = base64.urlsafe_b64decode(data).decode('utf-8', errors='replace')
+                    return decoded_data
             return ''
 
-        def find_plain_text(payload):
+        def get_html(payload):
+            if 'body' in payload:
+                data = payload['body'].get('data')
+                if data:
+                    decoded_data = base64.urlsafe_b64decode(data).decode('utf-8', errors='replace')
+                    markdown = md(decoded_data)
+                    return markdown
+            return ''
+
+        def find_plain_text(message_body, payload):
+            if payload.get('mimeType') == 'text/html':
+                return get_html(payload)
             if payload.get('mimeType') == 'text/plain':
                 return get_text(payload)
-            if 'parts' in payload:
-                for part in payload['parts']:
-                    text = find_plain_text(part)
-                    if text:
-                        return text
-            return ''
 
-        body = find_plain_text(message_data['payload'])
+            if payload.get('parts'):
+                for part in payload.get('parts'):
+                    text = find_plain_text(message_body, part)
+                    if text:
+                        message_body += text
+            return message_body
+
+        body = find_plain_text(message_body, message_data['payload'])
         return body if body else ""
 
 

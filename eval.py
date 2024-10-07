@@ -13,8 +13,16 @@ client = wrap_openai(OpenAI())
 
 @traceable
 def prompt_compliance_evaluator(run: Run, example: Example) -> dict:
-    inputs = example.inputs['input']
-    outputs = example.outputs['output']
+    # print("example:")
+    # print(example.outputs)
+
+    inputs = example.inputs['messages']
+    outputs = example.outputs
+
+    # print("Inputs:")
+    # print(inputs)
+    # print("Outputs:")
+    # print(outputs)
 
     # Extract system prompt
     system_prompt = next((msg['data']['content'] for msg in inputs if msg['type'] == 'system'), "")
@@ -30,7 +38,7 @@ def prompt_compliance_evaluator(run: Run, example: Example) -> dict:
 
     # Extract latest user message and model output
     latest_message = message_history[-1]['content'] if message_history else ""
-    model_output = outputs['data']['content']
+    model_output = outputs['generations'][0]['text']
 
     evaluation_prompt = f"""
         System Prompt: {system_prompt}
@@ -118,10 +126,10 @@ def prompt_compliance_evaluator(run: Run, example: Example) -> dict:
         ]}
 
 # The name or UUID of the LangSmith dataset to evaluate on.
-data = "Assistantly Dataset"
+data = "Assistantly v2 Dataset"
 
 # A string to prefix the experiment name with.
-experiment_prefix = "Assistantly prompt compliance"
+experiment_prefix = "Assistantly v2 prompt compliance"
 
 # List of evaluators to score the outputs of target task
 evaluators = [

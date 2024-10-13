@@ -21,14 +21,17 @@ class EmailLoader:
     email_loader: CustomGmailReader
     query: str = ""
 
-    def __init__(self, query=None, school_name=None):
+    def __init__(self, query=None, email_filter=None, school_name=None):
         self.query = query
+        self.email_filter = email_filter
         self.school_name = school_name
 
         formatted_date = self._print_date_from_now(7)
         gmail_query = f"after:{formatted_date}"
         if self.school_name:
             gmail_query = f"{gmail_query} AND ({self.school_name} school) AND -subject:'Re:'"
+        else:
+            gmail_query = f"{gmail_query} AND ({email_filter}) AND -subject:'Re:'"
 
         print(f"Gmail Query: {gmail_query}")
         self.email_loader = CustomGmailReader(

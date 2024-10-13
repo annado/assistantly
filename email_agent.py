@@ -9,11 +9,11 @@ from email_loader import EmailLoader
 
 
 EMAIL_AGENT_PROMPT = """\
-You are a helpful assistant for busy parents. Your job is to read emails and create a summary. Your summary of the emails should be concise, \
-  without losing fidelity of information.
+You are a helpful assistant for busy parents. Your job is to read emails and create a summary. \
+  Your summary of the emails should be concise, without losing fidelity of information.
 
-- For each email, you should first read the current summary file, if it exists, then update the markdown-formatted file with \
-  additional information from the latest email, removing any duplicate items.
+- For each email, you should first read the current summary file, if it exists. If it doesn't exist, create a new one. 
+Then update the markdown-formatted file with additional information from the latest email, removing any duplicate items.
 - You should not include information regarding Middle School, or TK.
 
 - For the contents of the markdown-formatted plan, create three sections, "Key Dates", "Action Items", and "Highlights."
@@ -163,7 +163,7 @@ class EmailAgent:
 
         await response_message.update()
 
-        return response_message.content
+        return self._get_artifacts_content()
 
     async def call_agent(self, agent_name, message_history, response_message):
         pass
@@ -203,10 +203,7 @@ class EmailAgent:
             file.write(contents)
 
 
-    def _build_system_prompt(self, emails: List[Document]):
-        """
-        Builds the system prompt including the agent's prompt and the contents of the artifacts folder.
-        """
+    def _get_artifacts_content(self):
         artifacts_content = "<ARTIFACTS>\n"
         artifacts_dir = "artifacts"
 
@@ -219,6 +216,14 @@ class EmailAgent:
                         artifacts_content += f"<FILE name='{filename}'>\n{file_content}\n</FILE>\n"
 
         artifacts_content += "</ARTIFACTS>"
+        return artifacts_content
+
+
+    def _build_system_prompt(self, emails: List[Document]):
+        """
+        Builds the system prompt including the agent's prompt and the contents of the artifacts folder.
+        """
+        artifacts_content = self._get_artifacts_content()
 
         email_content = "<EMAILS>\n"
         for email in emails:

@@ -17,14 +17,14 @@ TODOS:
 today = datetime.now().strftime("%Y-%m-%d")
 
 SYSTEM_PROMPT = """
-You are a helpful assistant for busy parents. Your job is to sort through email, summarizing and sorting
+You are a helpful assistant for busy parents. Your job is to sort through email
 to extract relevant information and to make your user more productive and efficient. 
 Your parents are busy but engaged with the school community and their children's education.
 Your summary of the emails should be concise, without losing fidelity of information.
 
 You have the following functions available:
-- summarize_emails_from_school(school_name: str) -> List[str]:
-    - This function will fetch emails from a specific school and summarize them.
+- summarize_emails_from_school(school_name: str):
+    - This function will fetch emails from a specific school provide the summary in an artifacts directory.
 - get_recent_order_emails() -> List[str]:
     - This function will return a list of emails that are relevant to recent purchases that require shipping.
 
@@ -169,7 +169,7 @@ class Chatbot:
 
         if function_name == "summarize_emails_from_school":
             school_name = arguments["school_name"]
-            email_loader = EmailLoader(f"Most recent emails from {school_name} school", school_name=school_name)
+            email_loader = EmailLoader(query=f"Most recent emails from {school_name} school", school_name=school_name)
             # result = email_loader.load_emails()
 
             emails = email_loader.load_emails()
@@ -187,7 +187,7 @@ class Chatbot:
             # response_message = await self.email_agent.execute(school_name, message_history)
             result = response_message
         elif function_name == "get_recent_order_emails":
-            email_loader = EmailLoader(f"Most recent emails about recent purchases")
+            email_loader = EmailLoader(query=f"Most recent emails about recent purchases", email_filter="order OR purchase OR receipt OR shipped")
             emails = email_loader.load_emails()
             result = json.dumps(emails)
             message_history.append({"role": "function", "name": function_name, "content": result})

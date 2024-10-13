@@ -9,6 +9,8 @@ from chatbot import Chatbot
 load_dotenv()
 
 
+chatbot = Chatbot()
+
 @cl.set_starters
 async def set_starters():
     return [
@@ -24,8 +26,6 @@ async def set_starters():
             # icon="/public/learn.svg",
             ),
     ]
-
-chatbot = Chatbot()
 
 @cl.on_chat_start
 def start_chat():

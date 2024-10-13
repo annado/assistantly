@@ -7,6 +7,7 @@ from langsmith.wrappers import wrap_openai
 import openai
 
 from email_loader import EmailLoader
+from email_agent import EmailAgent
 
 """
 TODOS:
@@ -21,26 +22,9 @@ to extract relevant information and to make your user more productive and effici
 Your parents are busy but engaged with the school community and their children's education.
 Your summary of the emails should be concise, without losing fidelity of information.
 
-You will use the following guidelines to update the summary:
-
-1. **Keeping Track of Key Dates**:
-    - Do not include items that happened more than 2 days ago from {today}
-    - If the key date comes from a school-related email, annotate the key dates with the class, if available. 
-    Some of the classes might be labeled with the format L1, L2, L3, etc. This stands for Level 1, Level 2, Level 3, etc.
-    Include time if available.
-
-2. **Action Items**
-    - Update the action items if the email contains an action item that the parent needs to complete
-      but is not associated with a key date, such as reviewing photos.
-    - Annotate by class if available.
-    - Include a link to the action item if available.
-
-3. **Updating Highlights**:
-    - Update the highlights if the email mentions something the student learned or did that week.
-
 You have the following functions available:
-- get_emails_by_school(school_name: str) -> List[str]:
-    - This function will return a list of emails that are relevant to the school.
+- summarize_emails_from_school(school_name: str) -> List[str]:
+    - This function will fetch emails from a specific school and summarize them.
 - get_recent_order_emails() -> List[str]:
     - This function will return a list of emails that are relevant to recent purchases that require shipping.
 
@@ -74,9 +58,6 @@ config_key = os.getenv("MODEL_CONFIG")
 # Get selected configuration
 config = configurations[config_key]
 
-# Initialize the OpenAI async client
-client = wrap_openai(openai.AsyncClient(api_key=config["api_key"], base_url=config["endpoint_url"]))
-
 gen_kwargs = {
     "model": config["model"],
     "temperature": 0.2,
@@ -84,21 +65,21 @@ gen_kwargs = {
 }
 
 class Chatbot:
+    message_history = []
+    client = None
+    email_agent = None
+
     def __init__(self):
         self.message_history = []
+
+        # Initialize the OpenAI async client
+        self.client = wrap_openai(openai.AsyncClient(api_key=config["api_key"], base_url=config["endpoint_url"]))
+        self.email_agent = EmailAgent(client=self.client)
 
 
     def start_chat(self):
         self.message_history = [{"role": "system", "content": SYSTEM_PROMPT}]
         self.update_message_history(self.message_history)
-
-
-    def insert_emails_to_history(self, message_history, documents):
-        emails = json.dumps(documents)
-        email_content = (
-            f"Emails:\n\n{emails}"
-        )
-        message_history.append({"role": "system", "content": email_content})
 
 
     async def start_response(self):
@@ -121,18 +102,21 @@ class Chatbot:
     async def stream_response(self, response_message):
         try:
             if config_key == "mistral_7B":
-                stream = await client.completions.create(messages=self.message_history, stream=True, **gen_kwargs)
+                stream = await self.client.completions.create(messages=self.message_history, stream=True, **gen_kwargs)
                 async for part in stream:
                     if token := part.choices[0].text or "":
                         await response_message.stream_token(token)
             else:
-                stream = await client.chat.completions.create(messages=self.message_history, stream=True,
+                stream = await self.client.chat.completions.create(messages=self.message_history, stream=True,
                     **gen_kwargs)
             async for part in stream:
                     if token := part.choices[0].delta.content or "":
                         await response_message.stream_token(token)
         except openai.APIError as api_error:
             print("API error", api_error)
+            print("response message: ", json.dumps(self.message_history))
+            print("response message: ", json.dumps(response_message.content))
+
             response_message.content = "OpenAI API returned an API Error"
         except openai.APIConnectionError as api_connection_error:
             print("API connection error", api_connection_error)
@@ -183,20 +167,36 @@ class Chatbot:
         print(f"Function name: {function_name}")
         print(f"Arguments: {arguments}")
 
-        if function_name == "get_emails_by_school":
+        if function_name == "summarize_emails_from_school":
             school_name = arguments["school_name"]
             email_loader = EmailLoader(f"Most recent emails from {school_name} school", school_name=school_name)
-            result = email_loader.load_emails()
+            # result = email_loader.load_emails()
+
+            emails = email_loader.load_emails()
+            response_message = await self.email_agent.execute(emails, message_history)
+            # for index, email_document in enumerate(emails):
+            #     email_body = email_document.text
+            #     # print(email_body)
+            #     result = email_body
+            #     print("Processing email: ", email_document.metadata["subject"])
+            #     # message_history.append({"role": "assistant", "content": response_message})
+            #     print("Agent response:")
+            #     print(response_message)
+
+            message_history.append({"role": "function", "name": function_name, "content": response_message})
+            # response_message = await self.email_agent.execute(school_name, message_history)
+            result = response_message
         elif function_name == "get_recent_order_emails":
             email_loader = EmailLoader(f"Most recent emails about recent purchases")
-            result = email_loader.load_emails()
+            emails = email_loader.load_emails()
+            result = json.dumps(emails)
+            message_history.append({"role": "function", "name": function_name, "content": result})
             # results = get_recent_order_emails()
         else:
             result = f"Error: Unknown function '{function_name}'"
 
         # Add the function result to the message history
         # print(f"Function result: {result}")
-        message_history.append({"role": "function", "name": function_name, "content": result})
 
         # Generate a new response based on the function result
         response_message = await self.generate_response()
@@ -205,3 +205,28 @@ class Chatbot:
 
         return response_message
 
+
+    def _update_artifact(self, filename, contents):
+        os.makedirs("artifacts", exist_ok=True)
+        with open(os.path.join("artifacts", filename), "w") as file:
+            file.write(contents)
+
+
+    def _build_system_prompt(self):
+        """
+        Builds the system prompt including the agent's prompt and the contents of the artifacts folder.
+        """
+        artifacts_content = "<ARTIFACTS>\n"
+        artifacts_dir = "artifacts"
+
+        if os.path.exists(artifacts_dir) and os.path.isdir(artifacts_dir):
+            for filename in os.listdir(artifacts_dir):
+                file_path = os.path.join(artifacts_dir, filename)
+                if os.path.isfile(file_path):
+                    with open(file_path, "r") as file:
+                        file_content = file.read()
+                        artifacts_content += f"<FILE name='{filename}'>\n{file_content}\n</FILE>\n"
+
+        artifacts_content += "</ARTIFACTS>"
+
+        return f"{self.prompt}\n{artifacts_content}"

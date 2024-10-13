@@ -5,7 +5,8 @@ from llama_index.core import (
     load_index_from_storage,
     StorageContext,
     VectorStoreIndex,
-    QueryBundle
+    QueryBundle,
+    SummaryIndex
 )
 from llama_index.core.postprocessor import (
     FixedRecencyPostprocessor
@@ -17,7 +18,7 @@ PERSIST_DIR = "./storage"
 
 class EmailLoader:
 
-    email_loader: ChildProcessError
+    email_loader: CustomGmailReader
     query: str = ""
 
     def __init__(self, query=None, school_name=None):
@@ -72,16 +73,24 @@ class EmailLoader:
 
         # Load the emails
         print("Loading emails...")
-        documents = self.email_loader.load_data()
-        print(f"Number of results: {len(documents)}")
+        emails = self.email_loader.load_data()
+        print(f"Number of email results: {len(emails)}")
 
-        return documents
+        for i, doc in enumerate(emails):
+            # print(f"Text sample: {doc.node.get_content()[:200]}...")  # Print first 200 characters
+            # print(f"Email {i+1}: {doc.metadata['id']}")
+            print(f"Email {i+1}: {doc.metadata['subject']}")
+
+        return emails
+
 
     def _fetch_and_create_index(self):
         documents = self.fetch_emails()
         index = VectorStoreIndex.from_documents(documents)
         index.storage_context.persist(persist_dir=PERSIST_DIR)
+
         return index
+
 
     def _get_email_retriever(self, force_refetch=False, top_k=30):
         index = self._load_emails_from_storage()
@@ -89,22 +98,36 @@ class EmailLoader:
             print("Refetching emails...")
             index = self._fetch_and_create_index()
 
-        # Create a retriever to fetch relevant documents
         retriever = index.as_retriever(retrieval_mode='similarity', 
             k=top_k,
             similarity_top_k=top_k
         )
+
+        # Create a retriever to fetch relevant documents
         return retriever
+
+    def _fetch_and_create_summary_index(self, documents):
+        index = SummaryIndex.from_documents(documents)
+
+        query_engine = index.as_query_engine(response_mode="tree_summarize")
+        return query_engine
+         # response = query_engine.query("<summarization_query>")
+
 
     def load_emails(self):
         # print(f"Query: {query}")
         retriever = self._get_email_retriever(True)
-
         # Retrieve relevant documents
         relevant_docs = retriever.retrieve(self.query)
+        # documents = self.fetch_emails()
+        # index = SummaryIndex.from_documents(documents)
+        # query_engine = index.as_query_engine(response_mode="tree_summarize")
+
+        # relevant_docs = query_engine.query(self.query)
+        # print(relevant_docs)
 
         print(f"Number of relevant documents: {len(relevant_docs)}")
-        print("\n" + "="*50 + "\n")
+        # print("\n" + "="*50 + "\n")
 
         ret = []
         for i, doc in enumerate(relevant_docs):
@@ -118,7 +141,8 @@ class EmailLoader:
                 "content": doc.node.get_content()
             })
 
-        return self._format_emails(ret)
+
+        return ret
 
     def get_emails_by_school(self, school_name):
         emails = self.load_emails(f"Most recent emails from {school_name} school")

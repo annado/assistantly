@@ -74,15 +74,19 @@ class CustomGmailReader(BaseReader, BaseModel):
             creds = Credentials.from_authorized_user_file("token.json", SCOPES)
         # If there are no (valid) credentials available, let the user log in.
         if not creds or not creds.valid:
+            print(f"credentials missing {not creds} or invalid {not creds.valid}")
             if creds and creds.expired and creds.refresh_token:
+                print("Refreshing credentials...")
                 creds.refresh(Request())
             else:
+                print("Running local server for authentication...")
                 flow = InstalledAppFlow.from_client_secrets_file(
                     "credentials.json", SCOPES
                 )
                 creds = flow.run_local_server(port=8080)
             # Save the credentials for the next run
             with open("token.json", "w") as token:
+                print("Saving credentials to token.json")
                 token.write(creds.to_json())
 
         return creds
